@@ -1,0 +1,805 @@
+import React, { useState, useRef, useCallback, useEffect } from 'react';
+import { 
+  UploadCloud, X, Sparkles, Loader2, Info, User, LogOut, Camera, 
+  ImageIcon, Mail, Smartphone, ArrowRight, ShieldCheck, Settings, 
+  ChevronDown, MapPin, Calendar, Activity
+} from 'lucide-react';
+
+const MAX_IMAGES = 5;
+
+// Mock database to simulate persistence across logins
+const MOCK_DB = {
+  users: {},
+  saveUserData: (userId, data) => {
+    MOCK_DB.users[userId] = { ...MOCK_DB.users[userId], ...data };
+    console.log("Mock DB saved for", userId, MOCK_DB.users[userId]);
+  },
+  getUserData: (userId) => {
+    return MOCK_DB.users[userId] || null;
+  }
+};
+
+const ZODIAC_SIGNS = [
+  "Aries", "Taurus", "Gemini", "Cancer", "Leo", "Virgo", 
+  "Libra", "Scorpio", "Sagittarius", "Capricorn", "Aquarius", "Pisces"
+];
+
+export default function App() {
+  // Auth State
+  const [isLoggedIn, setIsLoggedIn] = useState(false);
+  const [currentUser, setCurrentUser] = useState(null); // Stores ID/Email/Phone
+  
+  // Login Flow State
+  const [loginMethod, setLoginMethod] = useState('email'); // 'email' or 'phone'
+  const [loginInput, setLoginInput] = useState('');
+  const [showOTP, setShowOTP] = useState(false);
+  const [otpInput, setOtpInput] = useState(['', '', '', '', '', '']);
+  const [isSendingOTP, setIsSendingOTP] = useState(false);
+  const otpInputRefs = useRef([]);
+
+  // App State
+  const [images, setImages] = useState([]);
+  const [savedOutfits, setSavedOutfits] = useState([]);
+  const [isMenuOpen, setIsMenuOpen] = useState(false);
+  const [showProfileSettings, setShowProfileSettings] = useState(false);
+  
+  // User Profile Data
+  const [userProfilePic, setUserProfilePic] = useState(null);
+  const [profileData, setProfileData] = useState({
+    name: '',
+    age: '',
+    dob: '',
+    zodiac: '',
+    location: '',
+    apiKey: ''
+  });
+  
+  // AI & Processing State
+  const [isDragging, setIsDragging] = useState(false);
+  const [isAnalyzing, setIsAnalyzing] = useState(false);
+  const [aiAdvice, setAiAdvice] = useState('');
+  const [generatedImage, setGeneratedImage] = useState(null);
+  const [isGeneratingImage, setIsGeneratingImage] = useState(false);
+  const [error, setError] = useState('');
+  const fileInputRef = useRef(null);
+  const menuRef = useRef(null);
+
+  // Close menu when clicking outside
+  useEffect(() => {
+    function handleClickOutside(event) {
+      if (menuRef.current && !menuRef.current.contains(event.target)) {
+        setIsMenuOpen(false);
+      }
+    }
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, []);
+
+  const handleSendOTP = (e) => {
+    e.preventDefault();
+    if (!loginInput.trim()) {
+      setError(`Please enter your ${loginMethod === 'email' ? 'email' : 'phone number'}.`);
+      return;
+    }
+    
+    if (loginMethod === 'email' && !loginInput.includes('@')) {
+      setError('Please enter a valid email address.');
+      return;
+    }
+
+    setError('');
+    setIsSendingOTP(true);
+
+    setTimeout(() => {
+      setIsSendingOTP(false);
+      setShowOTP(true);
+      setTimeout(() => otpInputRefs.current[0]?.focus(), 100);
+    }, 1500);
+  };
+
+  const handleOTPChange = (index, value) => {
+    if (value && !/^\d+$/.test(value)) return;
+    const newOtp = [...otpInput];
+    newOtp[index] = value.slice(-1);
+    setOtpInput(newOtp);
+
+    if (value && index < 5) {
+      otpInputRefs.current[index + 1]?.focus();
+    }
+  };
+
+  const handleOTPKeyDown = (index, e) => {
+    if (e.key === 'Backspace' && !otpInput[index] && index > 0) {
+      otpInputRefs.current[index - 1]?.focus();
+    }
+  };
+
+  const verifyOTPAndLogin = (e) => {
+    e.preventDefault();
+    const enteredOTP = otpInput.join('');
+    if (enteredOTP.length < 6) {
+      setError('Please enter the full 6-digit verification code.');
+      return;
+    }
+
+    setIsSendingOTP(true);
+    
+    setTimeout(() => {
+      const userId = loginInput.toLowerCase();
+      setCurrentUser(userId);
+      setIsLoggedIn(true);
+      
+      const savedData = MOCK_DB.getUserData(userId);
+      if (savedData) {
+        setUserProfilePic(savedData.profilePic || null);
+        setSavedOutfits(savedData.outfits || []);
+        setProfileData(savedData.profileData || { name: '', age: '', dob: '', zodiac: '', location: '', apiKey: '' });
+      } else {
+         // Reset default profile state for new user
+         setUserProfilePic(null);
+         setSavedOutfits([]);
+         setProfileData({ name: '', age: '', dob: '', zodiac: '', location: '', apiKey: '' });
+      }
+      
+      setShowOTP(false);
+      setOtpInput(['', '', '', '', '', '']);
+      setLoginInput('');
+      setIsSendingOTP(false);
+      setError('');
+    }, 1000);
+  };
+
+  const handleLogout = () => {
+    if (currentUser) {
+      MOCK_DB.saveUserData(currentUser, {
+        profilePic: userProfilePic,
+        outfits: savedOutfits,
+        profileData: profileData
+      });
+    }
+
+    setIsLoggedIn(false);
+    setCurrentUser(null);
+    setImages([]);
+    setAiAdvice('');
+    setGeneratedImage(null);
+    setUserProfilePic(null);
+    setIsMenuOpen(false);
+    setShowProfileSettings(false);
+  };
+
+  const handleProfileDataChange = (e) => {
+     const { name, value } = e.target;
+     setProfileData(prev => ({ ...prev, [name]: value }));
+  };
+
+  const saveProfileSettings = () => {
+     if (currentUser) {
+        MOCK_DB.saveUserData(currentUser, { profileData: profileData, profilePic: userProfilePic });
+     }
+     setShowProfileSettings(false);
+  };
+
+  const handleProfilePicUpload = (e) => {
+    const file = e.target.files[0];
+    if (file) {
+      const reader = new FileReader();
+      reader.onload = (event) => {
+        const base64Data = event.target.result.split(',')[1];
+        const newPic = {
+          id: Date.now().toString(),
+          dataUrl: event.target.result,
+          base64Data: base64Data,
+          mimeType: file.type
+        };
+        setUserProfilePic(newPic);
+        if (currentUser) MOCK_DB.saveUserData(currentUser, { profilePic: newPic });
+      };
+      reader.readAsDataURL(file);
+    }
+  };
+
+  const handleDragOver = useCallback((e) => {
+    e.preventDefault();
+    setIsDragging(true);
+  }, []);
+
+  const handleDragLeave = useCallback((e) => {
+    e.preventDefault();
+    setIsDragging(false);
+  }, []);
+
+  const processFiles = (files) => {
+    const validFiles = Array.from(files).filter(file => file.type.startsWith('image/'));
+    if (validFiles.length + images.length > MAX_IMAGES) {
+      setError(`You can only upload a maximum of ${MAX_IMAGES} items.`);
+      return;
+    }
+    setError('');
+
+    validFiles.forEach(file => {
+      const reader = new FileReader();
+      reader.onload = (e) => {
+        const base64Data = e.target.result.split(',')[1];
+        setImages(prev => [...prev, {
+          id: Date.now().toString() + Math.random().toString(36).substr(2, 9),
+          dataUrl: e.target.result,
+          base64Data: base64Data,
+          mimeType: file.type
+        }]);
+      };
+      reader.readAsDataURL(file);
+    });
+  };
+
+  const handleDrop = useCallback((e) => {
+    e.preventDefault();
+    setIsDragging(false);
+    if (e.dataTransfer.files && e.dataTransfer.files.length > 0) processFiles(e.dataTransfer.files);
+  }, [images]);
+
+  const handleFileInput = (e) => {
+    if (e.target.files && e.target.files.length > 0) processFiles(e.target.files);
+  };
+
+  const removeImage = (idToRemove) => {
+    setImages(images.filter(img => img.id !== idToRemove));
+    if (images.length === 1) {
+      setAiAdvice(''); 
+      setGeneratedImage(null);
+    }
+  };
+
+  const getStylingAdvice = async () => {
+    if (images.length === 0) {
+      setError('Please upload at least one image to get advice.');
+      return;
+    }
+
+    setIsAnalyzing(true);
+    setError('');
+
+    try {
+      const userApiKey = profileData.apiKey;
+      if (!userApiKey) {
+        throw new Error('Please add your Gemini API Key in Profile & Settings to use the AI features.');
+      }
+
+      const parts = images.map(img => ({ inlineData: { mimeType: img.mimeType, data: img.base64Data } }));
+      
+      // Inject user profile data into prompt if available for personalized advice
+      let personalizedContext = "";
+      if (profileData.name || profileData.age || profileData.zodiac || profileData.location) {
+         personalizedContext = ` Tailor your advice for a user named ${profileData.name || 'Anonymous'}.`;
+         if (profileData.age) personalizedContext += ` They are ${profileData.age} years old.`;
+         if (profileData.location) personalizedContext += ` They live in ${profileData.location}, consider the likely weather.`;
+         if (profileData.zodiac) personalizedContext += ` Their zodiac sign is ${profileData.zodiac}, maybe incorporate some fun elements related to this.`;
+      }
+
+      parts.push({
+        text: `You are an expert fashion stylist.${personalizedContext} Analyze the clothing items in the provided images. Provide suggestions on how to combine them, what occasions they are suited for, what colors coordinate well with them, and general styling tips for these specific items. Format the output with clear headings and bullet points.`
+      });
+
+      const payload = { contents: [{ role: "user", parts: parts }] };
+      const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${userApiKey}`;
+
+      const response = await fetch(apiUrl, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      });
+
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error?.message || 'Failed to get styling advice.');
+
+      if (data.candidates?.[0]?.content?.parts?.[0]) {
+        setAiAdvice(data.candidates[0].content.parts[0].text);
+      } else {
+        throw new Error('Unexpected response format from the AI.');
+      }
+    } catch (err) {
+      console.error(err);
+      setError('An error occurred while analyzing your wardrobe.');
+    } finally {
+      setIsAnalyzing(false);
+    }
+  };
+
+  const visualizeOutfit = async () => {
+    if (!userProfilePic) {
+      setError('Please upload a profile picture in your Profile Settings to visualize outfits on yourself.');
+      return;
+    }
+    if (images.length === 0) {
+      setError('Please upload at least one clothing item.');
+      return;
+    }
+
+    setIsGeneratingImage(true);
+    setError('');
+    setGeneratedImage(null);
+
+    try {
+      const userApiKey = profileData.apiKey;
+      if (!userApiKey) {
+        throw new Error('Please add your Gemini API Key in Profile & Settings to use the AI features.');
+      }
+
+      let personalizedPrompt = "Photorealistic image of the person in the first image wearing the exact clothing items shown in the subsequent images. Keep the person's face, body type, pose, and skin tone as identical to the first image as possible. Render the clothes realistically onto their body.";
+      if (profileData.location) personalizedPrompt += ` The background or lighting should subtly reflect a vibe suitable for ${profileData.location}.`;
+
+      const uploadedParts = images.map(img => ({ inlineData: { mimeType: img.mimeType, data: img.base64Data } }));
+      const parts = [
+        { text: personalizedPrompt },
+        { inlineData: { mimeType: userProfilePic.mimeType, data: userProfilePic.base64Data } },
+        ...uploadedParts
+      ];
+
+      const payload = {
+        contents: [{ role: "user", parts: parts }],
+        generationConfig: { responseModalities: ['TEXT', 'IMAGE'] }
+      };
+
+      const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${userApiKey}`;
+
+      const response = await fetch(apiUrl, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      });
+
+      const result = await response.json();
+      const base64 = result.candidates?.[0]?.content?.parts?.find(p => p.inlineData)?.inlineData?.data;
+      const mimeType = result.candidates?.[0]?.content?.parts?.find(p => p.inlineData)?.inlineData?.mimeType || 'image/png';
+      
+      if (base64) {
+        const newGenImage = `data:${mimeType};base64,${base64}`;
+        setGeneratedImage(newGenImage);
+        
+        if (currentUser) {
+           const newOutfitRecord = {
+              id: Date.now().toString(),
+              date: new Date().toISOString(),
+              image: newGenImage,
+              itemsCount: images.length
+           };
+           const updatedOutfits = [newOutfitRecord, ...savedOutfits];
+           setSavedOutfits(updatedOutfits);
+           MOCK_DB.saveUserData(currentUser, { outfits: updatedOutfits });
+        }
+      } else {
+        throw new Error('Could not generate the try-on image.');
+      }
+    } catch (err) {
+      console.error(err);
+      setError('Failed to generate virtual try-on.');
+    } finally {
+      setIsGeneratingImage(false);
+    }
+  };
+
+  const formatAdvice = (text) => {
+    const lines = text.split('\n');
+    let formattedElements = [];
+    let currentList = [];
+
+    lines.forEach((line, index) => {
+      if (line.startsWith('## ')) {
+        if (currentList.length > 0) {
+          formattedElements.push(<ul key={`ul-${index}`} className="list-disc pl-5 mb-4 text-stone-600 space-y-2">{currentList}</ul>);
+          currentList = [];
+        }
+        formattedElements.push(<h3 key={`h3-${index}`} className="text-xl font-semibold mt-6 mb-3 text-stone-800">{line.replace('## ', '')}</h3>);
+      } else if (line.startsWith('* **')) {
+         const match = line.match(/\* \*\*(.*?)\*\*(.*)/);
+         if (match) currentList.push(<li key={`li-${index}`}><span className="font-semibold text-stone-800">{match[1]}</span>{match[2]}</li>);
+         else currentList.push(<li key={`li-${index}`}>{line.replace('* ', '')}</li>);
+      } else if (line.startsWith('* ')) {
+        currentList.push(<li key={`li-${index}`}>{line.replace('* ', '')}</li>);
+      } else if (line.startsWith('**') && line.endsWith('**')) {
+          if (currentList.length > 0) {
+            formattedElements.push(<ul key={`ul-${index}`} className="list-disc pl-5 mb-4 text-stone-600 space-y-2">{currentList}</ul>);
+            currentList = [];
+          }
+          formattedElements.push(<p key={`p-bold-${index}`} className="font-semibold text-stone-800 mt-4 mb-2">{line.replace(/\*\*/g, '')}</p>);
+      } else if (line.trim() !== '') {
+        if (currentList.length > 0) {
+          formattedElements.push(<ul key={`ul-${index}`} className="list-disc pl-5 mb-4 text-stone-600 space-y-2">{currentList}</ul>);
+          currentList = [];
+        }
+        formattedElements.push(<p key={`p-${index}`} className="mb-4 text-stone-600 leading-relaxed">{line}</p>);
+      }
+    });
+
+    if (currentList.length > 0) formattedElements.push(<ul key={`ul-final`} className="list-disc pl-5 mb-4 text-stone-600 space-y-2">{currentList}</ul>);
+    return formattedElements;
+  };
+
+  // --- LOGIN SCREEN RENDER ---
+  if (!isLoggedIn) {
+    return (
+      <div className="min-h-screen bg-stone-50 flex items-center justify-center p-4 selection:bg-stone-200 selection:text-stone-900">
+        <div className="bg-white p-8 rounded-[2rem] shadow-xl max-w-md w-full border border-stone-100 overflow-hidden relative">
+          
+          <div className="flex flex-col items-center mb-8 relative z-10">
+            <div className="w-16 h-16 bg-stone-900 text-white rounded-2xl flex items-center justify-center mb-4 shadow-lg shadow-stone-200">
+              <Sparkles className="w-8 h-8" />
+            </div>
+            <h1 className="text-3xl font-bold text-stone-800">your MIRROR</h1>
+            <p className="text-stone-500 mt-2 text-center text-sm">Sign in to access your digital wardrobe.</p>
+          </div>
+
+          {!showOTP ? (
+            <div className="space-y-6 animate-in slide-in-from-right-4 fade-in duration-300">
+              <div className="flex p-1 bg-stone-100 rounded-xl">
+                <button
+                  onClick={() => { setLoginMethod('email'); setError(''); }}
+                  className={`flex-1 py-2 text-sm font-medium rounded-lg transition-all ${loginMethod === 'email' ? 'bg-white text-stone-900 shadow-sm' : 'text-stone-500 hover:text-stone-700'}`}
+                >
+                  <Mail className="w-4 h-4 inline-block mr-2 mb-0.5" /> Email
+                </button>
+                <button
+                  onClick={() => { setLoginMethod('phone'); setError(''); }}
+                  className={`flex-1 py-2 text-sm font-medium rounded-lg transition-all ${loginMethod === 'phone' ? 'bg-white text-stone-900 shadow-sm' : 'text-stone-500 hover:text-stone-700'}`}
+                >
+                  <Smartphone className="w-4 h-4 inline-block mr-2 mb-0.5" /> Phone
+                </button>
+              </div>
+
+              <form onSubmit={handleSendOTP} className="space-y-4">
+                <div>
+                  <input
+                    type={loginMethod === 'email' ? 'email' : 'tel'}
+                    value={loginInput}
+                    onChange={(e) => setLoginInput(e.target.value)}
+                    className="w-full px-4 py-3.5 rounded-xl border border-stone-200 focus:outline-none focus:ring-2 focus:ring-stone-400 focus:border-transparent transition-all bg-stone-50/50 text-stone-800 placeholder:text-stone-400"
+                    placeholder={loginMethod === 'email' ? 'name@example.com' : '+1 (555) 000-0000'}
+                    required
+                  />
+                </div>
+                {error && <p className="text-rose-500 text-sm animate-in fade-in">{error}</p>}
+                
+                <button
+                  type="submit"
+                  disabled={isSendingOTP}
+                  className="w-full py-3.5 bg-stone-900 hover:bg-stone-800 text-white rounded-xl font-medium transition-all shadow-sm active:scale-[0.98] flex items-center justify-center gap-2 disabled:opacity-70 disabled:cursor-not-allowed"
+                >
+                  {isSendingOTP ? <Loader2 className="w-5 h-5 animate-spin" /> : <><ArrowRight className="w-4 h-4" /> Send Secure Code</>}
+                </button>
+              </form>
+            </div>
+          ) : (
+            <div className="space-y-6 animate-in slide-in-from-right-4 fade-in duration-300">
+              <div className="text-center">
+                <ShieldCheck className="w-12 h-12 text-green-500 mx-auto mb-3" />
+                <h3 className="text-lg font-semibold text-stone-800">Check your {loginMethod === 'email' ? 'Inbox' : 'Messages'}</h3>
+                <p className="text-sm text-stone-500 mt-1">We sent a 6-digit code to <br/><span className="font-medium text-stone-700">{loginInput}</span></p>
+              </div>
+
+              <form onSubmit={verifyOTPAndLogin} className="space-y-6">
+                <div className="flex justify-between gap-2">
+                  {otpInput.map((digit, index) => (
+                    <input
+                      key={index}
+                      ref={el => otpInputRefs.current[index] = el}
+                      type="text"
+                      maxLength={1}
+                      value={digit}
+                      onChange={(e) => handleOTPChange(index, e.target.value)}
+                      onKeyDown={(e) => handleOTPKeyDown(index, e)}
+                      className="w-12 h-14 text-center text-xl font-bold rounded-xl border border-stone-200 focus:outline-none focus:ring-2 focus:ring-stone-500 focus:border-transparent bg-stone-50/50"
+                      required
+                    />
+                  ))}
+                </div>
+                
+                {error && <p className="text-rose-500 text-sm text-center animate-in fade-in">{error}</p>}
+
+                <button type="submit" disabled={isSendingOTP || otpInput.join('').length < 6} className="w-full py-3.5 bg-stone-900 hover:bg-stone-800 text-white rounded-xl font-medium transition-all shadow-sm active:scale-[0.98] flex items-center justify-center gap-2 disabled:opacity-70 disabled:cursor-not-allowed">
+                  {isSendingOTP ? <Loader2 className="w-5 h-5 animate-spin" /> : 'Verify & Enter'}
+                </button>
+                <div className="text-center">
+                  <button type="button" onClick={() => { setShowOTP(false); setError(''); }} className="text-sm text-stone-500 hover:text-stone-800 transition-colors">Use a different {loginMethod}</button>
+                </div>
+              </form>
+            </div>
+          )}
+        </div>
+      </div>
+    );
+  }
+
+  // --- MAIN APP RENDER ---
+  return (
+    <div className="min-h-screen bg-[#FDFBF7] text-stone-800 font-sans selection:bg-stone-200 selection:text-stone-900 relative">
+      
+      {/* Navigation Bar */}
+      <nav className="bg-white/80 backdrop-blur-md border-b border-stone-200 sticky top-0 z-50">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+          <div className="flex justify-between h-16 items-center">
+            <div className="flex items-center gap-3">
+               <div className="w-10 h-10 bg-stone-900 text-white rounded-xl flex items-center justify-center shadow-sm">
+                <Sparkles className="w-5 h-5" />
+              </div>
+              <span className="text-xl font-bold tracking-tight hidden sm:inline-block">your MIRROR</span>
+            </div>
+            
+            <div className="flex items-center gap-2" ref={menuRef}>
+              <div 
+                onClick={() => setIsMenuOpen(!isMenuOpen)}
+                className="flex items-center gap-2 bg-stone-100 hover:bg-stone-200 transition-colors px-3 py-1.5 rounded-full border border-stone-200 cursor-pointer"
+              >
+                <div className="w-7 h-7 bg-stone-300 rounded-full flex items-center justify-center overflow-hidden shrink-0">
+                    {userProfilePic ? (
+                        <img src={userProfilePic.dataUrl} alt="Avatar" className="w-full h-full object-cover" />
+                    ) : (
+                        <User className="w-4 h-4 text-stone-600" />
+                    )}
+                </div>
+                <span className="text-sm font-medium text-stone-700 truncate max-w-[120px] hidden sm:inline-block">
+                    {profileData.name || currentUser}
+                </span>
+                <ChevronDown className="w-4 h-4 text-stone-500" />
+              </div>
+
+              {/* Profile Dropdown Menu */}
+              {isMenuOpen && (
+                 <div className="absolute top-14 right-4 sm:right-6 lg:right-8 w-56 bg-white border border-stone-200 shadow-lg rounded-xl py-2 z-50 animate-in fade-in slide-in-from-top-2">
+                    <div className="px-4 py-2 border-b border-stone-100 mb-2">
+                       <p className="text-sm font-semibold text-stone-800 truncate">{profileData.name || 'User'}</p>
+                       <p className="text-xs text-stone-500 truncate">{currentUser}</p>
+                    </div>
+                    <button 
+                       onClick={() => { setShowProfileSettings(true); setIsMenuOpen(false); }}
+                       className="w-full text-left px-4 py-2 text-sm text-stone-700 hover:bg-stone-50 flex items-center gap-2"
+                    >
+                       <Settings className="w-4 h-4" /> Profile & Settings
+                    </button>
+                    <button 
+                       onClick={handleLogout}
+                       className="w-full text-left px-4 py-2 text-sm text-rose-600 hover:bg-rose-50 flex items-center gap-2 mt-1"
+                    >
+                       <LogOut className="w-4 h-4" /> Sign Out
+                    </button>
+                 </div>
+              )}
+            </div>
+          </div>
+        </div>
+      </nav>
+
+      {/* Profile Settings Overlay */}
+      {showProfileSettings && (
+         <div className="fixed inset-0 z-[60] bg-black/40 backdrop-blur-sm flex items-center justify-center p-4">
+            <div className="bg-white rounded-2xl shadow-xl w-full max-w-lg overflow-hidden flex flex-col max-h-[90vh]">
+               <div className="flex justify-between items-center p-4 sm:p-6 border-b border-stone-100">
+                  <h2 className="text-xl font-bold text-stone-800 flex items-center gap-2">
+                     <User className="w-5 h-5 text-stone-400" /> My Profile
+                  </h2>
+                  <button onClick={() => setShowProfileSettings(false)} className="p-2 hover:bg-stone-100 rounded-full text-stone-500">
+                     <X className="w-5 h-5" />
+                  </button>
+               </div>
+               
+               <div className="p-4 sm:p-6 overflow-y-auto">
+                  <div className="flex flex-col items-center mb-8">
+                     <div className="relative group">
+                        <div className="w-24 h-24 rounded-full overflow-hidden border-4 border-stone-50 bg-stone-100 shadow-sm flex items-center justify-center">
+                           {userProfilePic ? (
+                              <img src={userProfilePic.dataUrl} alt="Profile" className="w-full h-full object-cover" />
+                           ) : (
+                              <User className="w-10 h-10 text-stone-300" />
+                           )}
+                        </div>
+                        <div className="absolute inset-0 bg-black/40 rounded-full opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center cursor-pointer">
+                           <Camera className="w-6 h-6 text-white" />
+                           <input type="file" accept="image/*" onChange={handleProfilePicUpload} className="absolute inset-0 w-full h-full opacity-0 cursor-pointer" />
+                        </div>
+                     </div>
+                     <p className="text-xs text-stone-500 mt-2">Required for Virtual Try-On</p>
+                  </div>
+
+                  <div className="space-y-4">
+                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                        <div>
+                           <label className="block text-xs font-medium text-stone-500 mb-1">Full Name</label>
+                           <input type="text" name="name" value={profileData.name} onChange={handleProfileDataChange} className="w-full px-3 py-2 rounded-lg border border-stone-200 focus:outline-none focus:ring-2 focus:ring-stone-400 bg-stone-50 text-sm" placeholder="Enter name" />
+                        </div>
+                        <div>
+                           <label className="block text-xs font-medium text-stone-500 mb-1 flex items-center gap-1"><Activity className="w-3 h-3" /> Age</label>
+                           <input type="number" name="age" value={profileData.age} onChange={handleProfileDataChange} className="w-full px-3 py-2 rounded-lg border border-stone-200 focus:outline-none focus:ring-2 focus:ring-stone-400 bg-stone-50 text-sm" placeholder="e.g. 25" />
+                        </div>
+                     </div>
+
+                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                        <div>
+                           <label className="block text-xs font-medium text-stone-500 mb-1 flex items-center gap-1"><Calendar className="w-3 h-3" /> Date of Birth</label>
+                           <input type="date" name="dob" value={profileData.dob} onChange={handleProfileDataChange} className="w-full px-3 py-2 rounded-lg border border-stone-200 focus:outline-none focus:ring-2 focus:ring-stone-400 bg-stone-50 text-sm" />
+                        </div>
+                        <div>
+                           <label className="block text-xs font-medium text-stone-500 mb-1 flex items-center gap-1"><Sparkles className="w-3 h-3" /> Zodiac Sign</label>
+                           <select name="zodiac" value={profileData.zodiac} onChange={handleProfileDataChange} className="w-full px-3 py-2 rounded-lg border border-stone-200 focus:outline-none focus:ring-2 focus:ring-stone-400 bg-stone-50 text-sm">
+                              <option value="">Select sign...</option>
+                              {ZODIAC_SIGNS.map(sign => <option key={sign} value={sign}>{sign}</option>)}
+                           </select>
+                        </div>
+                     </div>
+
+                     <div>
+                        <label className="block text-xs font-medium text-stone-500 mb-1 flex items-center gap-1"><MapPin className="w-3 h-3" /> Location (City, Weather)</label>
+                        <input type="text" name="location" value={profileData.location} onChange={handleProfileDataChange} className="w-full px-3 py-2 rounded-lg border border-stone-200 focus:outline-none focus:ring-2 focus:ring-stone-400 bg-stone-50 text-sm" placeholder="e.g. New York, Sunny" />
+                        <p className="text-[10px] text-stone-400 mt-1">Helps AI recommend weather-appropriate outfits.</p>
+                     </div>
+                     
+                     <div className="pt-4 border-t border-stone-200">
+                        <label className="block text-xs font-semibold text-stone-800 mb-1 flex items-center gap-1"><ShieldCheck className="w-4 h-4 text-green-600" /> API Configuration</label>
+                        <p className="text-[11px] text-stone-500 mb-2 leading-relaxed">
+                           To make the AI styling work for real, enter a free <a href="https://aistudio.google.com/app/apikey" target="_blank" rel="noreferrer" className="text-rose-600 hover:underline">Google Gemini API Key</a>. It is saved locally in your browser.
+                        </p>
+                        <input type="password" name="apiKey" value={profileData.apiKey || ''} onChange={handleProfileDataChange} className="w-full px-3 py-2 rounded-lg border border-stone-200 focus:outline-none focus:ring-2 focus:ring-stone-400 bg-stone-50 text-sm font-mono" placeholder="AIzaSy..." />
+                     </div>
+                  </div>
+               </div>
+               
+               <div className="p-4 sm:p-6 border-t border-stone-100 bg-stone-50 flex justify-end gap-3 shrink-0">
+                  <button onClick={() => setShowProfileSettings(false)} className="px-4 py-2 text-sm font-medium text-stone-600 hover:bg-stone-200 rounded-lg transition-colors">Cancel</button>
+                  <button onClick={saveProfileSettings} className="px-6 py-2 text-sm font-medium bg-stone-900 text-white hover:bg-stone-800 rounded-lg shadow-sm transition-colors">Save Profile</button>
+               </div>
+            </div>
+         </div>
+      )}
+
+      <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+        {error && (
+          <div className="mb-6 bg-rose-50 border border-rose-200 text-rose-700 px-4 py-3 rounded-xl flex items-start gap-3 shadow-sm animate-in slide-in-from-top-2">
+            <Info className="w-5 h-5 mt-0.5 shrink-0" />
+            <p>{error}</p>
+          </div>
+        )}
+
+        <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
+          
+          {/* Left Column: Upload Wardrobe */}
+          <div className="lg:col-span-5 space-y-6">
+            <section className="bg-white rounded-2xl shadow-sm border border-stone-100 p-6">
+              <div className="mb-4">
+                <h2 className="text-xl font-semibold flex items-center gap-2">
+                  <UploadCloud className="w-5 h-5 text-stone-400" />
+                  Your Wardrobe
+                </h2>
+                <p className="text-sm text-stone-500 mt-1">Upload items you want to style or try on.</p>
+              </div>
+
+              <div
+                className={`relative border-2 border-dashed rounded-xl transition-all duration-200 ease-in-out bg-stone-50
+                  ${isDragging ? 'border-stone-500 bg-stone-100' : 'border-stone-200 hover:border-stone-300'}
+                  ${images.length > 0 ? 'p-6' : 'p-12'}
+                `}
+                onDragOver={handleDragOver}
+                onDragLeave={handleDragLeave}
+                onDrop={handleDrop}
+              >
+                <input type="file" ref={fileInputRef} onChange={handleFileInput} accept="image/*" multiple className="absolute inset-0 w-full h-full opacity-0 cursor-pointer z-10" title="Upload images" />
+                <div className="text-center flex flex-col items-center pointer-events-none">
+                  <div className={`p-4 rounded-full mb-3 ${isDragging ? 'bg-stone-200' : 'bg-white shadow-sm'}`}>
+                    <UploadCloud className={`w-8 h-8 ${isDragging ? 'text-stone-700' : 'text-stone-400'}`} />
+                  </div>
+                  <p className="text-stone-700 font-medium text-base">{isDragging ? 'Drop clothes here' : 'Drag & drop clothes'}</p>
+                  <p className="text-stone-500 text-sm mt-1">or click to browse files</p>
+                  <p className="text-stone-400 text-xs mt-3 bg-stone-100 px-2 py-1 rounded-md">Max {MAX_IMAGES} items</p>
+                </div>
+              </div>
+            </section>
+
+            {/* Selected Images & Actions */}
+            {images.length > 0 && (
+              <section className="bg-white rounded-2xl shadow-sm border border-stone-100 p-6 animate-in slide-in-from-bottom-4">
+                <div className="flex justify-between items-center mb-4">
+                  <h3 className="font-semibold text-stone-800">Selected Items ({images.length})</h3>
+                  <button onClick={() => { setImages([]); setAiAdvice(''); setGeneratedImage(null); }} className="text-sm text-stone-500 hover:text-stone-800 transition-colors">Clear all</button>
+                </div>
+                
+                <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+                  {images.map((img) => (
+                    <div key={img.id} className="relative group aspect-square rounded-xl overflow-hidden bg-stone-100 border border-stone-200">
+                      <img src={img.dataUrl} alt="Clothing item" className="w-full h-full object-cover" />
+                      <button onClick={() => removeImage(img.id)} className="absolute top-2 right-2 p-1.5 bg-black/50 text-white rounded-full opacity-0 group-hover:opacity-100 transition-opacity hover:bg-black/70"><X className="w-4 h-4" /></button>
+                    </div>
+                  ))}
+                </div>
+
+                <div className="flex flex-col gap-3 mt-6">
+                  <button onClick={getStylingAdvice} disabled={isAnalyzing || isGeneratingImage} className={`w-full py-3.5 px-4 rounded-xl font-medium text-white shadow-sm transition-all duration-200 flex items-center justify-center gap-2 ${isAnalyzing || isGeneratingImage ? 'bg-stone-400 cursor-not-allowed' : 'bg-stone-900 hover:bg-stone-800 hover:shadow-md active:scale-[0.98]'}`}>
+                    {isAnalyzing ? <><Loader2 className="w-5 h-5 animate-spin" /> Analyzing Wardrobe...</> : <><Sparkles className="w-5 h-5" /> Get AI Styling Advice</>}
+                  </button>
+
+                  <button onClick={visualizeOutfit} disabled={isAnalyzing || isGeneratingImage} className={`w-full py-3.5 px-4 rounded-xl font-medium border-2 shadow-sm transition-all duration-200 flex items-center justify-center gap-2 ${isAnalyzing || isGeneratingImage ? 'bg-stone-100 border-stone-200 text-stone-400 cursor-not-allowed' : 'bg-white border-rose-200 text-rose-600 hover:bg-rose-50 hover:border-rose-300 active:scale-[0.98]'}`}>
+                    {isGeneratingImage ? <><Loader2 className="w-5 h-5 animate-spin" /> Generating Try-On...</> : <><ImageIcon className="w-5 h-5" /> Visualize on Me</>}
+                  </button>
+                </div>
+              </section>
+            )}
+          </div>
+
+          {/* Right Column: AI Advice Display & History */}
+          <div className="lg:col-span-7 space-y-6">
+            <section className={`bg-white rounded-2xl shadow-sm border border-stone-100 p-6 sm:p-8 min-h-[500px] flex flex-col transition-all duration-500 ${!aiAdvice && !generatedImage && !isAnalyzing && !isGeneratingImage ? 'justify-center items-center text-center bg-stone-50/30' : ''}`}>
+              
+              {!aiAdvice && !generatedImage && !isAnalyzing && !isGeneratingImage && (
+                <div className="max-w-md mx-auto space-y-4">
+                  <div className="w-20 h-20 bg-stone-100 rounded-full flex items-center justify-center mx-auto mb-6">
+                    <Sparkles className="w-10 h-10 text-stone-300" />
+                  </div>
+                  <h2 className="text-2xl font-bold text-stone-800">Welcome to your MIRROR</h2>
+                  <p className="text-stone-500 leading-relaxed">
+                    Upload photos of your clothes on the left, then ask the AI to play stylist. Make sure to complete your Profile (top right) so the AI can tailor advice specifically to you and your location!
+                  </p>
+                </div>
+              )}
+
+              {(isAnalyzing || isGeneratingImage) && (
+                <div className="flex-1 flex flex-col items-center justify-center space-y-6 animate-in fade-in">
+                  <div className="relative">
+                     <div className="w-16 h-16 border-4 border-rose-100 rounded-full"></div>
+                     <div className="w-16 h-16 border-4 border-rose-500 rounded-full border-t-transparent animate-spin absolute top-0 left-0"></div>
+                  </div>
+                  <div className="text-center space-y-2">
+                    <h3 className="text-lg font-medium text-stone-800">{isGeneratingImage ? 'Generating your look...' : 'The stylist is thinking...'}</h3>
+                    <p className="text-stone-500 text-sm animate-pulse">{isGeneratingImage ? 'Applying selected clothes to your profile picture.' : 'Evaluating textures, colors, and your personal profile.'}</p>
+                  </div>
+                </div>
+              )}
+
+              {generatedImage && !isAnalyzing && !isGeneratingImage && (
+                <div className="mb-8 animate-in fade-in slide-in-from-bottom-4">
+                  <div className="flex items-center gap-3 mb-4 pb-4 border-b border-stone-100">
+                    <div className="bg-rose-100 p-2 rounded-full text-rose-600"><ImageIcon className="w-5 h-5" /></div>
+                    <h2 className="text-xl font-semibold text-stone-800">Your Virtual Try-On</h2>
+                  </div>
+                  <div className="relative rounded-2xl overflow-hidden bg-stone-50 border border-stone-200">
+                    <img src={generatedImage} alt="Virtual Try-On" className="w-full h-auto max-h-[600px] object-contain" />
+                  </div>
+                  <div className="flex items-center justify-between mt-3">
+                     <p className="text-xs text-stone-400">Note: AI-generated previews may slightly alter likeness or texture.</p>
+                     <span className="text-xs font-medium text-green-600 bg-green-50 px-2 py-1 rounded-md">Saved to account</span>
+                  </div>
+                </div>
+              )}
+
+              {aiAdvice && !isAnalyzing && !isGeneratingImage && (
+                <div className="animate-in fade-in slide-in-from-bottom-4">
+                  <div className="flex items-center gap-3 mb-6 pb-4 border-b border-stone-100">
+                    <div className="bg-stone-900 p-2 rounded-full text-white shadow-sm"><Sparkles className="w-5 h-5" /></div>
+                    <h2 className="text-xl font-semibold text-stone-800">Stylist Recommendations</h2>
+                  </div>
+                  <div className="prose prose-stone max-w-none">
+                    {formatAdvice(aiAdvice)}
+                  </div>
+                </div>
+              )}
+            </section>
+
+            {savedOutfits.length > 0 && (
+               <section className="bg-white rounded-2xl shadow-sm border border-stone-100 p-6 animate-in slide-in-from-bottom-4">
+                  <h3 className="font-semibold text-stone-800 mb-4 flex items-center gap-2">
+                     <ImageIcon className="w-5 h-5 text-stone-400" /> Saved Outfits History
+                  </h3>
+                  <div className="flex gap-4 overflow-x-auto pb-2 snap-x">
+                     {savedOutfits.map((outfit) => (
+                        <div key={outfit.id} className="relative shrink-0 w-32 aspect-[3/4] rounded-lg overflow-hidden border border-stone-200 snap-start bg-stone-50">
+                           <img src={outfit.image} alt="Saved Try-on" className="w-full h-full object-cover" />
+                           <div className="absolute bottom-0 inset-x-0 bg-gradient-to-t from-black/60 to-transparent p-2">
+                              <p className="text-[10px] text-white/90">{new Date(outfit.date).toLocaleDateString()}</p>
+                           </div>
+                        </div>
+                     ))}
+                  </div>
+               </section>
+            )}
+
+          </div>
+        </div>
+      </main>
+    </div>
+  );
+}
